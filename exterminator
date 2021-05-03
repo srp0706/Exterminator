@@ -1,6 +1,33 @@
 #!/usr/bin/python
 # encoding: utf-8
+"""Exterminator is a simple task manager written in Elementary and Python."""
 
+import efl.elementary as elm
+
+from efl.elementary.box import Box
+from efl.elementary.button import Button
+from efl.elementary.check import Check
+from efl.elementary.label import Label
+from efl.elementary.icon import Icon
+from efl.elementary.frame import Frame
+from efl.elementary.progressbar import Progressbar
+# from efl.elementary.separator import Separator
+from efl.elementary.window import StandardWindow
+from efl.elementary.flip import Flip, ELM_FLIP_CUBE_DOWN
+from efl.evas import EVAS_HINT_EXPAND, EVAS_HINT_FILL
+from efl import ecore
+import psutil
+# import os
+import getpass
+
+import threading
+try:                         # Python 2.x
+    import Queue
+except ModuleNotFoundError:  # Python 3.x
+    import queue as Queue
+
+from elmextensions import AboutWindow, InstanceError
+from elmextensions import SortedList
 
 __author__ = "Jeff Hoogland"
 __contributors__ = ["Jeff Hoogland", "Scimmia"]
@@ -54,122 +81,115 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 INFO = """
 <align=center>
-<hilight>Exterminator</hilight> is a simple task manager written in Elementary and Python.<br>
+<hilight>Exterminator</hilight> is a simple task manager written in Elementary
+ and Python.<br>
 <br>
 <br>
 </align>
 """
-
-import efl.elementary as elm
-
-from efl.elementary.box import Box
-from efl.elementary.button import Button
-from efl.elementary.check import Check
-from efl.elementary.label import Label
-from efl.elementary.icon import Icon
-from efl.elementary.frame import Frame
-from efl.elementary.progressbar import Progressbar
-from efl.elementary.separator import Separator
-from efl.elementary.window import StandardWindow
-from efl.elementary.flip import Flip, ELM_FLIP_CUBE_DOWN
-from efl.evas import EVAS_HINT_EXPAND, EVAS_HINT_FILL
-from efl import ecore
-import psutil
-import os
-import getpass
-
-import threading
-try:
-    import Queue
-except:
-    import queue as Queue
-
-from elmextensions import AboutWindow, InstanceError
-from elmextensions import SortedList
 
 EXPAND_BOTH = EVAS_HINT_EXPAND, EVAS_HINT_EXPAND
 EXPAND_HORIZ = EVAS_HINT_EXPAND, 0.0
 FILL_BOTH = EVAS_HINT_FILL, EVAS_HINT_FILL
 FILL_HORIZ = EVAS_HINT_FILL, 0.5
 
+
 class ThreadedFunction(object):
-    def __init__(self, doneCB=None):
+    """The ThreadedFunction class."""
+
+    def __init__(self, done_cb=None):
         # private stuff
-        self._commandQueue = Queue.Queue()
-        self._replyQueue = Queue.Queue()
-        self._doneCB = doneCB
+        self._command_queue = Queue.Queue()
+        self._reply_queue = Queue.Queue()
+        self._done_cb = done_cb
 
         # add a timer to check the data returned by the worker thread
-        self._timer = ecore.Timer(0.1, self.checkReplyQueue)
+        self._timer = ecore.Timer(0.1, self.check_reply_queue)
 
         # start the working thread
-        threading.Thread(target=self.threadFunc).start()
+        threading.Thread(target=self.thread_func).start()
 
     def run(self, action):
-        self._commandQueue.put(action)
+        """Add the desired command (action) to the command queue."""
+        self._command_queue.put(action)
 
     def shutdown(self):
+        """Adds the Quit function to the command queue."""
         self._timer.delete()
-        self._commandQueue.put('QUIT')
+        self._command_queue.put('QUIT')
 
-    def checkReplyQueue(self):
-        if not self._replyQueue.empty():
-            result = self._replyQueue.get()
-            if callable(self._doneCB):
-                self._doneCB()
+    def check_reply_queue(self):
+        """TODO: docstring"""
+        if not self._reply_queue.empty():
+            _ = self._reply_queue.get()
+            if callable(self._done_cb):
+                self._done_cb()
         return True
 
     # all the member below this point run in the thread
-    def threadFunc(self):
+    def thread_func(self):
+        """TODO: docstring"""
         while True:
             # wait here until an item in the queue is present
-            func = self._commandQueue.get()
+            func = self._command_queue.get()
             if callable(func):
                 func()
             elif func == 'QUIT':
                 break
-            self._replyQueue.put("done")
+            self._reply_queue.put("done")
+
 
 class MainWindow(StandardWindow):
+    """TODO: docstring"""
+
     def __init__(self):
-        StandardWindow.__init__(self, "exterminator", "Exterminator", size=(600, 400))
-        self.callback_delete_request_add(self.quitAll)
-        
+        """TODO: docstring"""
+        StandardWindow.__init__(self,
+                                "exterminator",
+                                "Exterminator",
+                                size=(600, 400))
+        self.callback_delete_request_add(self.quit_all)
+
         icon = Icon(self)
         icon.size_hint_weight_set(EVAS_HINT_EXPAND, EVAS_HINT_EXPAND)
         icon.size_hint_align_set(EVAS_HINT_FILL, EVAS_HINT_FILL)
         icon.standard_set('utilities-system-monitor')
         icon.show()
         self.icon_object_set(icon.object_get())
-        
-        self.taskManager = TaskManager(self)
-        self.taskManager.show()
-        
-        self.resize_object_add(self.taskManager)
-    
-    def quitAll(self, obj):
-        self.taskManager.threadedFunction.shutdown()
+
+        self.task_manager = TaskManager(self)
+        self.task_manager.show()
+
+        self.resize_object_add(self.task_manager)
+
+    def quit_all(self, obj):
+        """TODO: docstring"""
+        self.task_manager.threaded_function.shutdown()
         elm.exit()
 
+
 class TaskManager(Box):
+    """TODO: docstring"""
+
     def __init__(self, parent):
+        """TODO: docstring"""
         Box.__init__(self, parent)
         self.win = win = parent
         self.appstokill = []
         self.process = {}
-        
-        self.threadedFunction = ThreadedFunction(self.refreshGUI)
-        self.gettingData = False
-        
+
+        self.threaded_function = ThreadedFunction(self.refresh_gui)
+        self.getting_data = False
+
         self.size_hint_weight = EXPAND_BOTH
         self.size_hint_align = FILL_BOTH
-        
+
         self.loop = ecore.timer_add(0.1, self.update)
-        
+
         cpu = psutil.cpu_percent(interval=1) / 100.0
         ram = psutil.virtual_memory()
 
-        #Totals in MB
+        # Totals in MB
         ramtota = float(ram.total) / (1048576)
         ramused = ramtota * ram.percent * .01
 
@@ -179,11 +199,14 @@ class TaskManager(Box):
         ramframe.size_hint_align = FILL_BOTH
         ramframe.text_set("Memory Usage:")
 
-        self.rambar = rambar = Progressbar(self.win, span_size=250, size_hint_weight=(EVAS_HINT_EXPAND, 0.0),
-        size_hint_align=FILL_HORIZ)
+        self.rambar = rambar = Progressbar(self.win,
+                                           span_size=250,
+                                           size_hint_weight=(EVAS_HINT_EXPAND,
+                                                             0.0),
+                                           size_hint_align=FILL_HORIZ)
         rambar.show()
-        rambar.unit_format = "%.0f MB out of %.0f MB"%(ramused, ramtota)
-        rambar.value_set(ramused/ramtota)
+        rambar.unit_format = "%.0f MB out of %.0f MB" % (ramused, ramtota)
+        rambar.value_set(ramused / ramtota)
         ramframe.content = rambar
 
         cpuframe = self.cpuframe = Frame(self.win)
@@ -192,31 +215,39 @@ class TaskManager(Box):
         cpuframe.size_hint_weight = (EVAS_HINT_EXPAND, 0.0)
         cpuframe.size_hint_align = FILL_BOTH
 
-        self.cpubar = cpubar = Progressbar(self.win, span_size=250, size_hint_weight=(EVAS_HINT_EXPAND, 0.0),
-        size_hint_align=FILL_HORIZ)
+        self.cpubar = cpubar = Progressbar(self.win,
+                                           span_size=250,
+                                           size_hint_weight=(EVAS_HINT_EXPAND,
+                                                             0.0),
+                                           size_hint_align=FILL_HORIZ)
         cpubar.show()
         cpubar.value_set(cpu)
         cpuframe.content = cpubar
-        
-        titles = [("PID", True), ("Process Name", True), ("CPU", True), ("Memory", True), ("User", True)]
 
-        self.slist = slist = SortedList(self, titles=titles,   size_hint_weight=EXPAND_BOTH,
-            size_hint_align=FILL_BOTH, homogeneous=True)
+        titles = [("PID", True), ("Process Name", True), ("CPU", True),
+                  ("Memory", True), ("User", True)]
+
+        self.slist = slist = SortedList(self,
+                                        titles=titles,
+                                        size_hint_weight=EXPAND_BOTH,
+                                        size_hint_align=FILL_BOTH,
+                                        homogeneous=True)
 
         slist.show()
 
-        kills = Button(self.win, size_hint_weight=EXPAND_HORIZ,
-            size_hint_align=FILL_HORIZ)
+        kills = Button(self.win,
+                       size_hint_weight=EXPAND_HORIZ,
+                       size_hint_align=FILL_HORIZ)
         kills.text = "Kill Selected Processes"
         kills.callback_clicked_add(self.kill_selected)
         kills.show()
-        
+
         icon = Icon(self.win, thumb='True')
         icon.standard_set('help-about')
-        
+
         about = Button(self.win, size_hint_align=(1.0, 0.0))
         about.content = icon
-        about.callback_clicked_add(self.showAbout)
+        about.callback_clicked_add(self.show_about)
         about.show()
 
         tbox = Box(win)
@@ -225,20 +256,23 @@ class TaskManager(Box):
         tbox.pack_end(ramframe)
         tbox.show()
 
-        bbox = Box(win, size_hint_weight=EXPAND_HORIZ,
-            size_hint_align=FILL_HORIZ)
+        bbox = Box(win,
+                   size_hint_weight=EXPAND_HORIZ,
+                   size_hint_align=FILL_HORIZ)
         bbox.horizontal = True
         bbox.pack_end(kills)
         bbox.pack_end(about)
         bbox.show()
-        
-        wheel = Progressbar(self, pulse_mode=True,
+
+        wheel = Progressbar(self,
+                            pulse_mode=True,
                             size_hint_weight=EXPAND_BOTH,
                             size_hint_align=FILL_HORIZ)
         wheel.pulse(True)
         wheel.show()
-        
-        self.flip = Flip(self, size_hint_weight=EXPAND_BOTH,
+
+        self.flip = Flip(self,
+                         size_hint_weight=EXPAND_BOTH,
                          size_hint_align=FILL_BOTH)
         self.flip.part_content_set("back", self.slist)
         self.flip.part_content_set("front", wheel)
@@ -247,147 +281,171 @@ class TaskManager(Box):
         self.pack_end(tbox)
         self.pack_end(self.flip)
         self.pack_end(bbox)
-        
+
         self.pidstoupdate = {}
         self.pidstoremove = []
-        
+
         try:
-            #psutil 2.x method
-            self.cpuCount = psutil.cpu_count()
-        except:
-            #psutil 1.x method
-            self.cpuCount = psutil.NUM_CPUS
+            # psutil 2.x method
+            self.cpu_count = psutil.cpu_count()
+        except AttributeError:
+            # psutil 1.x method
+            self.cpu_count = psutil.NUM_CPUS
 
     def update(self, stuff=None, otherstuff=None):
-        if not self.gettingData:
-            self.threadedFunction.run(self.getPsUtilData)
-        
+        """TODO: docstring"""
+        if not self.getting_data:
+            self.threaded_function.run(self.get_psutil_data)
+
         return 1
-        
-    def refreshGUI(self):
-        for p in self.pidstoupdate:
-            if p in self.process:
-                self.process[p].update(self.pidstoupdate[p])
+
+    def refresh_gui(self):
+        """TODO: docstring"""
+        for pid in self.pidstoupdate:
+            if pid in self.process:
+                self.process[pid].update(self.pidstoupdate[pid])
             else:
-                cess = Process(self, self.pidstoupdate[p])
-                self.process[p] = cess
+                cess = Process(self, self.pidstoupdate[pid])
+                self.process[pid] = cess
                 self.slist.row_pack(cess, sort=False)
-        
-        for p in self.pidstoremove:
-            if p in self.process:
-                self.slist.row_unpack(self.process[p], True)
-                self.process.pop(p, None)
-        
+
+        for pid in self.pidstoremove:
+            if pid in self.process:
+                self.slist.row_unpack(self.process[pid], True)
+                self.process.pop(pid, None)
+
         self.pidstoupdate.clear()
         del self.pidstoremove[:]
-        
+
         self.slist.update()
-        
+
         self.cpubar.value_set(self.cpu)
-        self.rambar.value_set(self.ramused/self.ramtota)
-        self.rambar.unit_format = "%.0f MB out of %.0f MB"%(self.ramused, self.ramtota)
-        
+        self.rambar.value_set(self.ramused / self.ramtota)
+        self.rambar.unit_format = "%.0f MB out of %.0f MB" % (self.ramused,
+                                                              self.ramtota)
+
         if self.flip.front_visible:
             self.flip.go(ELM_FLIP_CUBE_DOWN)
 
     def run_command(self, command):
+        """TODO: docstring"""
         cmd = ecore.Exe(command)
         cmd.on_del_event_add(self.update)
 
-    def kill_selected( self, bt ):
+    def kill_selected(self, bt):
+        """TODO: docstring"""
         for pid in self.appstokill:
             self.kill_process(pid)
 
-    def check_sel( self, ck ):
+    def check_sel(self, ck):
+        """TODO: docstring"""
         if ck.state_get():
             self.appstokill.append(ck.text)
         else:
             self.appstokill.remove(ck.text)
-        #print self.appstokill
+        # print(self.appstokill)
 
-    def kill_process( self, pid ):
-        self.run_command("kill -9 %s"%pid)
-    
-    def getPsUtilData( self, cmd=False, arg=False ):
-        #print "cmd %s , arg %s"%(cmd, arg)
-        self.gettingData = True
+    def kill_process(self, pid):
+        """TODO: docstring"""
+        self.run_command("kill -9 %s" % pid)
+
+    def get_psutil_data(self, cmd=False, arg=False):
+        """TODO: docstring"""
+        # print("cmd %s , arg %s" % (cmd, arg))
+        self.getting_data = True
         tmp = list(psutil.process_iter())
         currentpids = []
         for p in tmp:
             try:
-                #in psutil 1.2.1 we can reference these directly
+                # in psutil 1.2.1 we can reference these directly
                 username = p.username
                 name = p.name
                 if callable(name):
-                    #in psutil 2.0 we need to call them
+                    # in psutil 2.0 we need to call them
                     username = p.username()
                     name = p.name()
                 if username == getpass.getuser():
                     currentpids.append(p.pid)
-                    self.pidstoupdate[p.pid] = { "pid":p.pid, 
-                            "name": name, 
-                            "username": username, 
-                            "cpu": p.cpu_percent(interval=0) / self.cpuCount, 
-                            "mem": float(p.memory_info().rss)/1048576}
-            except:
+                    self.pidstoupdate[p.pid] = {
+                        "pid": p.pid,
+                        "name": name,
+                        "username": username,
+                        "cpu": p.cpu_percent(interval=0) / self.cpu_count,
+                        "mem": float(p.memory_info().rss) / 1048576
+                    }
+            except TypeError:
                 pass
         for pid in self.process:
             if pid not in currentpids:
                 self.pidstoremove.append(pid)
-        
+
         self.cpu = psutil.cpu_percent(interval=1) / 100.0
         ram = psutil.virtual_memory()
 
-        #Totals in MB
+        # Totals in MB
         self.ramtota = float(ram.total) / (1048576)
         self.ramused = self.ramtota * ram.percent * .01
-        self.gettingData = False
-            
-    def showAbout(self, obj=False):
+        self.getting_data = False
+
+    def show_about(self, obj=False):
+        """TODO: docstring"""
         try:
-            AboutWindow(self, title="Exterminator", standardicon="utilities-system-monitor", \
-                        version=__version__, authors=AUTHORS, \
-                        licen=LICENSE, webaddress=__github__, \
+            AboutWindow(self,
+                        title="Exterminator",
+                        standardicon="utilities-system-monitor",
+                        version=__version__,
+                        authors=AUTHORS,
+                        licen=LICENSE,
+                        webaddress=__github__,
                         info=INFO)
         except InstanceError:
             pass
 
+
 class Process(list):
+    """TODO: docstring"""
+
     def __init__(self, parent, data):
+        """TODO: docstring"""
         self.win = parent.win
         self.dt = data
 
         pd = str(data["pid"])
 
-        pid = Check(self.win,   size_hint_weight=EXPAND_BOTH,
-            size_hint_align=FILL_BOTH)
+        pid = Check(self.win,
+                    size_hint_weight=EXPAND_BOTH,
+                    size_hint_align=FILL_BOTH)
         pid.text = pd
         pid.data["sort_data"] = data["pid"]
         pid.callback_changed_add(parent.check_sel)
         pid.show()
 
-        pname = Label(self.win,   size_hint_weight=EXPAND_BOTH,
-            size_hint_align=FILL_BOTH)
-        #pname.text = data["name"][0:25]
+        pname = Label(self.win,
+                      size_hint_weight=EXPAND_BOTH,
+                      size_hint_align=FILL_BOTH)
+        # pname.text = data["name"][0:25]
         pname.text = data["name"]
         pname.show()
 
-        user = Label(self.win,   size_hint_weight=EXPAND_BOTH,
-            size_hint_align=FILL_BOTH)
+        user = Label(self.win,
+                     size_hint_weight=EXPAND_BOTH,
+                     size_hint_align=FILL_BOTH)
         user.text = data["username"]
         user.show()
 
-        self.cpu = Label(self.win,   size_hint_weight=EXPAND_BOTH,
-            size_hint_align=FILL_BOTH)
+        self.cpu = Label(self.win,
+                         size_hint_weight=EXPAND_BOTH,
+                         size_hint_align=FILL_BOTH)
         cpu = data["cpu"]
-        self.cpu.text = "%.0f %%"%cpu
+        self.cpu.text = "%.0f %%" % cpu
         self.cpu.data["sort_data"] = cpu
         self.cpu.show()
 
-        self.mem = Label(self.win,   size_hint_weight=EXPAND_BOTH,
-            size_hint_align=FILL_BOTH)
+        self.mem = Label(self.win,
+                         size_hint_weight=EXPAND_BOTH,
+                         size_hint_align=FILL_BOTH)
         mem = data["mem"]
-        self.mem.text = "%.1f MB"%mem
+        self.mem.text = "%.1f MB" % mem
         self.mem.data["sort_data"] = mem
         self.mem.show()
 
@@ -398,13 +456,15 @@ class Process(list):
         self.append(user)
 
     def update(self, data):
+        """TODO: docstring"""
         self.dt = data
         cpu = data["cpu"]
-        self.cpu.text = "%.0f %%"%cpu
+        self.cpu.text = "%.0f %%" % cpu
         self.cpu.data["sort_data"] = cpu
         mem = data["mem"]
-        self.mem.text = "%.1f MB"%mem
+        self.mem.text = "%.1f MB" % mem
         self.mem.data["sort_data"] = mem
+
 
 if __name__ == "__main__":
     elm.init()
