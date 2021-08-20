@@ -1,0 +1,10 @@
+[MESSAGES CONTROL]
+disable=
+    import-error,                 # ignore efl imports - the modules are C and not Python
+    no-name-in-module,            # ignore pylint's checks against efl modules and components
+    no-member,                    # ignore pylint's checks against efl members
+    c-extension-no-member,        # ignore pylint's checks against efl C modules and components
+    too-few-public-methods,       # ignore pylint's hard limit for public methods (2)
+    too-many-instance-attributes, # ignore pylint's hard limit for instance attributes (7)
+    too-many-locals,              # ignore pylint's hard limit for local variables (15)
+    too-many-statements           # ignore pylint's hard limit for statements (50)

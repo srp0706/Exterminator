@@ -2,8 +2,17 @@
 # encoding: utf-8
 """Exterminator is a simple task manager written in Elementary and Python."""
 
-import efl.elementary as elm
+# General imports
+import getpass
+import threading
+import queue as Queue
+import psutil
+# try:                         # Python 2.x
+#     import Queue
+# except ModuleNotFoundError:  # Python 3.x
 
+# efl imports
+import efl.elementary as elm
 from efl.elementary.box import Box
 from efl.elementary.button import Button
 from efl.elementary.check import Check
@@ -16,15 +25,6 @@ from efl.elementary.window import StandardWindow
 from efl.elementary.flip import Flip, ELM_FLIP_CUBE_DOWN
 from efl.evas import EVAS_HINT_EXPAND, EVAS_HINT_FILL
 from efl import ecore
-import psutil
-# import os
-import getpass
-
-import threading
-try:                         # Python 2.x
-    import Queue
-except ModuleNotFoundError:  # Python 3.x
-    import queue as Queue
 
 from elmextensions import AboutWindow, InstanceError
 from elmextensions import SortedList
@@ -94,7 +94,8 @@ FILL_BOTH = EVAS_HINT_FILL, EVAS_HINT_FILL
 FILL_HORIZ = EVAS_HINT_FILL, 0.5
 
 
-class ThreadedFunction(object):
+# class ThreadedFunction(object):
+class ThreadedFunction():
     """The ThreadedFunction class."""
 
     def __init__(self, done_cb=None):
@@ -110,7 +111,7 @@ class ThreadedFunction(object):
         threading.Thread(target=self.thread_func).start()
 
     def run(self, action):
-        """Add the desired command (action) to the command queue."""
+        """Adds the desired command (action) to the command queue."""
         self._command_queue.put(action)
 
     def shutdown(self):
@@ -119,7 +120,7 @@ class ThreadedFunction(object):
         self._command_queue.put('QUIT')
 
     def check_reply_queue(self):
-        """TODO: docstring"""
+        """Checks if commands in command queue were executed"""
         if not self._reply_queue.empty():
             _ = self._reply_queue.get()
             if callable(self._done_cb):
@@ -128,7 +129,7 @@ class ThreadedFunction(object):
 
     # all the member below this point run in the thread
     def thread_func(self):
-        """TODO: docstring"""
+        """Executes commands in command queue"""
         while True:
             # wait here until an item in the queue is present
             func = self._command_queue.get()
@@ -140,14 +141,14 @@ class ThreadedFunction(object):
 
 
 class MainWindow(StandardWindow):
-    """TODO: docstring"""
+    """The MainWindow class."""
 
     def __init__(self):
         """TODO: docstring"""
         StandardWindow.__init__(self,
                                 "exterminator",
                                 "Exterminator",
-                                size=(600, 400))
+                                size=(800, 400))
         self.callback_delete_request_add(self.quit_all)
 
         icon = Icon(self)
@@ -162,14 +163,14 @@ class MainWindow(StandardWindow):
 
         self.resize_object_add(self.task_manager)
 
-    def quit_all(self, obj):
+    def quit_all(self, _):
         """TODO: docstring"""
         self.task_manager.threaded_function.shutdown()
         elm.exit()
 
 
 class TaskManager(Box):
-    """TODO: docstring"""
+    """The TaskManager class."""
 
     def __init__(self, parent):
         """TODO: docstring"""
@@ -185,6 +186,10 @@ class TaskManager(Box):
         self.size_hint_align = FILL_BOTH
 
         self.loop = ecore.timer_add(0.1, self.update)
+
+        self.cpu = None
+        self.ramtota = None
+        self.ramused = None
 
         cpu = psutil.cpu_percent(interval=1) / 100.0
         ram = psutil.virtual_memory()
@@ -250,19 +255,19 @@ class TaskManager(Box):
         about.callback_clicked_add(self.show_about)
         about.show()
 
-        tbox = Box(win)
-        tbox.horizontal = True
-        tbox.pack_end(cpuframe)
-        tbox.pack_end(ramframe)
-        tbox.show()
+        top_box = Box(win)
+        top_box.horizontal = True
+        top_box.pack_end(cpuframe)
+        top_box.pack_end(ramframe)
+        top_box.show()
 
-        bbox = Box(win,
-                   size_hint_weight=EXPAND_HORIZ,
-                   size_hint_align=FILL_HORIZ)
-        bbox.horizontal = True
-        bbox.pack_end(kills)
-        bbox.pack_end(about)
-        bbox.show()
+        bottom_box = Box(win,
+                         size_hint_weight=EXPAND_HORIZ,
+                         size_hint_align=FILL_HORIZ)
+        bottom_box.horizontal = True
+        bottom_box.pack_end(kills)
+        bottom_box.pack_end(about)
+        bottom_box.show()
 
         wheel = Progressbar(self,
                             pulse_mode=True,
@@ -278,12 +283,12 @@ class TaskManager(Box):
         self.flip.part_content_set("front", wheel)
         self.flip.show()
 
-        self.pack_end(tbox)
+        self.pack_end(top_box)
         self.pack_end(self.flip)
-        self.pack_end(bbox)
+        self.pack_end(bottom_box)
 
-        self.pidstoupdate = {}
-        self.pidstoremove = []
+        self.pids_to_update = {}
+        self.pids_to_remove = []
 
         try:
             # psutil 2.x method
@@ -292,7 +297,7 @@ class TaskManager(Box):
             # psutil 1.x method
             self.cpu_count = psutil.NUM_CPUS
 
-    def update(self, stuff=None, otherstuff=None):
+    def update(self):  # , stuff=None, otherstuff=None):
         """TODO: docstring"""
         if not self.getting_data:
             self.threaded_function.run(self.get_psutil_data)
@@ -301,21 +306,21 @@ class TaskManager(Box):
 
     def refresh_gui(self):
         """TODO: docstring"""
-        for pid in self.pidstoupdate:
+        for pid in self.pids_to_update:
             if pid in self.process:
-                self.process[pid].update(self.pidstoupdate[pid])
+                self.process[pid].update(self.pids_to_update[pid])
             else:
-                cess = Process(self, self.pidstoupdate[pid])
+                cess = Process(self, self.pids_to_update[pid])
                 self.process[pid] = cess
                 self.slist.row_pack(cess, sort=False)
 
-        for pid in self.pidstoremove:
+        for pid in self.pids_to_remove:
             if pid in self.process:
                 self.slist.row_unpack(self.process[pid], True)
                 self.process.pop(pid, None)
 
-        self.pidstoupdate.clear()
-        del self.pidstoremove[:]
+        self.pids_to_update.clear()
+        del self.pids_to_remove[:]
 
         self.slist.update()
 
@@ -332,52 +337,53 @@ class TaskManager(Box):
         cmd = ecore.Exe(command)
         cmd.on_del_event_add(self.update)
 
-    def kill_selected(self, bt):
+    def kill_selected(self):  # , bt):
         """TODO: docstring"""
         for pid in self.appstokill:
             self.kill_process(pid)
 
-    def check_sel(self, ck):
+    def check_sel(self, check):
         """TODO: docstring"""
-        if ck.state_get():
-            self.appstokill.append(ck.text)
+        if check.state_get():
+            self.appstokill.append(check.text)
         else:
-            self.appstokill.remove(ck.text)
+            self.appstokill.remove(check.text)
         # print(self.appstokill)
 
     def kill_process(self, pid):
         """TODO: docstring"""
         self.run_command("kill -9 %s" % pid)
 
-    def get_psutil_data(self, cmd=False, arg=False):
+    def get_psutil_data(self):  # , cmd=False, arg=False):
         """TODO: docstring"""
         # print("cmd %s , arg %s" % (cmd, arg))
         self.getting_data = True
         tmp = list(psutil.process_iter())
         currentpids = []
-        for p in tmp:
+        for process in tmp:
             try:
                 # in psutil 1.2.1 we can reference these directly
-                username = p.username
-                name = p.name
+                username = process.username
+                name = process.name
                 if callable(name):
                     # in psutil 2.0 we need to call them
-                    username = p.username()
-                    name = p.name()
+                    username = process.username()
+                    name = process.name()
                 if username == getpass.getuser():
-                    currentpids.append(p.pid)
-                    self.pidstoupdate[p.pid] = {
-                        "pid": p.pid,
+                    currentpids.append(process.pid)
+                    self.pids_to_update[process.pid] = {
+                        "pid": process.pid,
                         "name": name,
                         "username": username,
-                        "cpu": p.cpu_percent(interval=0) / self.cpu_count,
-                        "mem": float(p.memory_info().rss) / 1048576
+                        "cpu":
+                            (process.cpu_percent(interval=0) / self.cpu_count),
+                        "mem": float(process.memory_info().rss) / 1048576
                     }
             except TypeError:
                 pass
         for pid in self.process:
             if pid not in currentpids:
-                self.pidstoremove.append(pid)
+                self.pids_to_remove.append(pid)
 
         self.cpu = psutil.cpu_percent(interval=1) / 100.0
         ram = psutil.virtual_memory()
@@ -387,7 +393,7 @@ class TaskManager(Box):
         self.ramused = self.ramtota * ram.percent * .01
         self.getting_data = False
 
-    def show_about(self, obj=False):
+    def show_about(self, _=False):
         """TODO: docstring"""
         try:
             AboutWindow(self,
@@ -407,15 +413,16 @@ class Process(list):
 
     def __init__(self, parent, data):
         """TODO: docstring"""
+        super().__init__()
         self.win = parent.win
-        self.dt = data
+        self.data = data
 
-        pd = str(data["pid"])
+        process_data = str(data["pid"])
 
         pid = Check(self.win,
                     size_hint_weight=EXPAND_BOTH,
                     size_hint_align=FILL_BOTH)
-        pid.text = pd
+        pid.text = process_data
         pid.data["sort_data"] = data["pid"]
         pid.callback_changed_add(parent.check_sel)
         pid.show()
@@ -457,7 +464,7 @@ class Process(list):
 
     def update(self, data):
         """TODO: docstring"""
-        self.dt = data
+        self.data = data
         cpu = data["cpu"]
         self.cpu.text = "%.0f %%" % cpu
         self.cpu.data["sort_data"] = cpu
