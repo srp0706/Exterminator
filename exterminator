@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # encoding: utf-8
 """Exterminator is a simple task manager written in Elementary and Python."""
 
@@ -170,7 +170,8 @@ class MainWindow(StandardWindow):
 
 
 class TaskManager(Box):
-    """The TaskManager class."""
+    """The TaskManager class. Shows a table with the active
+    processes."""
 
     def __init__(self, parent):
         """TODO: docstring"""
@@ -187,16 +188,22 @@ class TaskManager(Box):
 
         self.loop = ecore.timer_add(0.1, self.update)
 
-        self.cpu = None
-        self.ramtota = None
-        self.ramused = None
+        self.pids_to_update = {}
+        self.pids_to_remove = []
 
-        cpu = psutil.cpu_percent(interval=1) / 100.0
-        ram = psutil.virtual_memory()
+        self.cpu = cpu = psutil.cpu_percent(interval=1) / 100.0
+        self.ram = ram = psutil.virtual_memory()
+
+        try:
+            # psutil 2.x method
+            self.cpu_count = psutil.cpu_count()
+        except AttributeError:
+            # psutil 1.x method
+            self.cpu_count = psutil.NUM_CPUS
 
         # Totals in MB
-        ramtota = float(ram.total) / (1048576)
-        ramused = ramtota * ram.percent * .01
+        self.ramtota = ramtota = float(ram.total) / (1048576)
+        self.ramused = ramused = ramtota * ram.percent * .01
 
         ramframe = self.ramframe = Frame(self.win)
         ramframe.show()
@@ -228,7 +235,7 @@ class TaskManager(Box):
         cpubar.show()
         cpubar.value_set(cpu)
         cpuframe.content = cpubar
-
+        
         titles = [("PID", True), ("Process Name", True), ("CPU", True),
                   ("Memory", True), ("User", True)]
 
@@ -237,7 +244,7 @@ class TaskManager(Box):
                                         size_hint_weight=EXPAND_BOTH,
                                         size_hint_align=FILL_BOTH,
                                         homogeneous=True)
-
+        self.get_psutil_data()
         slist.show()
 
         kills = Button(self.win,
@@ -287,17 +294,8 @@ class TaskManager(Box):
         self.pack_end(self.flip)
         self.pack_end(bottom_box)
 
-        self.pids_to_update = {}
-        self.pids_to_remove = []
 
-        try:
-            # psutil 2.x method
-            self.cpu_count = psutil.cpu_count()
-        except AttributeError:
-            # psutil 1.x method
-            self.cpu_count = psutil.NUM_CPUS
-
-    def update(self):  # , stuff=None, otherstuff=None):
+    def update(self, stuff=None, otherstuff=None):
         """TODO: docstring"""
         if not self.getting_data:
             self.threaded_function.run(self.get_psutil_data)
@@ -337,13 +335,13 @@ class TaskManager(Box):
         cmd = ecore.Exe(command)
         cmd.on_del_event_add(self.update)
 
-    def kill_selected(self):  # , bt):
+    def kill_selected(self, bt):
         """TODO: docstring"""
         for pid in self.appstokill:
             self.kill_process(pid)
 
     def check_sel(self, check):
-        """TODO: docstring"""
+        """Updates the list of processes to kill"""
         if check.state_get():
             self.appstokill.append(check.text)
         else:
@@ -351,7 +349,7 @@ class TaskManager(Box):
         # print(self.appstokill)
 
     def kill_process(self, pid):
-        """TODO: docstring"""
+        """Actually kills the process through a system call"""
         self.run_command("kill -9 %s" % pid)
 
     def get_psutil_data(self):  # , cmd=False, arg=False):
